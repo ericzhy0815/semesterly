@@ -12,7 +12,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import classNames from "classnames";
 // @ts-ignore no available type
 import ClickOutHandler from "react-onclickout";
@@ -35,7 +35,14 @@ import {
   fetchCourseInfo,
   loadTimetable,
 } from "../actions";
-import { Timetable } from "../constants/commonTypes";
+import {
+  Course,
+  DenormalizedCourse,
+  Offering,
+  Section,
+  Slot,
+  Timetable,
+} from "../constants/commonTypes";
 import { startComparingTimetables } from "../state/slices/compareTimetableSlice";
 import AvgCourseRating from "./AvgCourseRating";
 import { selectSlotColorData, selectTheme } from "../state/slices/themeSlice";
@@ -43,6 +50,7 @@ import { peerModalActions } from "../state/slices/peerModalSlice";
 import CreateNewTimetableButton from "./CreateNewTimetableButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import { sectionSchema } from "../schema";
 
 /**
  * This component displays the timetable name, allows you to switch between timetables,
@@ -54,8 +62,11 @@ const SideBar = () => {
   const dispatch = useAppDispatch();
   const colorData = useAppSelector(selectSlotColorData);
   const timetable = useAppSelector(getActiveTimetable);
-  const mandatoryCourses = useAppSelector((state) =>
-    getCoursesFromSlots(state, timetable.slots)
+  const mandatoryCourses: DenormalizedCourse[] = useAppSelector(
+    (state) =>
+      useMemo(() => {
+        return getCoursesFromSlots(state, timetable.slots);
+      }, [state, timetable.slots]) // Only change when slots or state changes
   );
   const semester = useAppSelector(getCurrentSemester);
   const savedTimetablesState = useAppSelector(
@@ -65,13 +76,12 @@ const SideBar = () => {
   const courseToClassmates = useAppSelector(
     (state) => state.classmates.courseToClassmates
   );
-  const avgRating = useAppSelector((state) => timetable.avg_rating);
+  const avgRating = useAppSelector(() => timetable.avg_rating);
   const activeTimetable = useAppSelector(
     (state) => state.savingTimetable.activeTimetable
   );
 
   const getShareLink = (courseCode: string) => getCourseShareLink(courseCode, semester);
-
   const timetableCourses = useAppSelector((state) => getActiveTimetableCourses(state));
   const events = useAppSelector((state) => state.customEvents.events);
   const curTheme = useAppSelector(selectTheme);
@@ -79,6 +89,96 @@ const SideBar = () => {
 
   const [hoveredCourse, setHoveredCourse] = useState(-1);
   const [masterSlotListLength, setMasterSlotListLength] = useState(0);
+
+  // coursePlan stores all the courses that the user drags into the course optimization section
+  const [coursePlan, setCoursePlan] = useState([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [draggedCourse, setDraggedCourse] = useState(null);
+  // masterSlots stores the MasterSlot components to be rendered for the original course list
+  const [masterSlots, setMasterSlots] = useState([]);
+
+  // Contains all keys for masterSlots (Iterated over for hoveredCourse, i.e. state for index of up/down keyboard shortcuts)
+  const [masterSlotList, setMasterSlotList] = useState([]);
+
+  // coursePlanMasterSlots likewise stores the MasterSlot components for the optimization section
+  const [coursePlanMasterSlots, setCoursePlanMasterSlots] = useState([]);
+  // masterSlotCourses stores all the courses in the course list, excluding the ones the user puts in the optimization section
+  const [masterSlotCourses, setMasterSlotCourses] = useState([]);
+
+  useEffect(() => {
+    const updatedMasterSlotList: number[] = [];
+    const updatedMasterSlotCourses: (Course | DenormalizedCourse)[] = [];
+    mandatoryCourses.map((course) => {
+      if (!coursePlan.some((plannedCourse) => plannedCourse.id === course.id)) {
+        updatedMasterSlotCourses.push(course);
+        updatedMasterSlotList.push(course.id);
+      }
+    });
+    setMasterSlotList(updatedMasterSlotList);
+    if (coursePlan.length + masterSlotCourses.length != mandatoryCourses.length)
+      setMasterSlotCourses(updatedMasterSlotCourses);
+  }, [mandatoryCourses]);
+
+  useEffect(() => {
+    createMasterSlots(masterSlotCourses, setMasterSlots, true, true, true);
+  }, [mandatoryCourses, masterSlotCourses]);
+
+  useEffect(() => {
+    createMasterSlots(coursePlan, setCoursePlanMasterSlots, false, false, false);
+  }, [mandatoryCourses, coursePlan]);
+
+  const createMasterSlots = (
+    courses: DenormalizedCourse[],
+    setSlots: React.Dispatch<React.SetStateAction<any>>,
+    showDrag: boolean,
+    showLink: boolean,
+    showRemove: boolean
+  ) => {
+    const updatedMasterSlotList: number[] = [];
+    const newMasterSlots = courses.map((course) => {
+      if (
+        mandatoryCourses.some((mandatoryCourse) => mandatoryCourse.id === course.id)
+      ) {
+        const colourIndex =
+          course.id in courseToColourIndex
+            ? courseToColourIndex[course.id]
+            : getNextAvailableColour(courseToColourIndex);
+
+        const professors = course.sections.map((section) => section.instructors);
+        const sectionId = timetable.slots.find(
+          (slot) => slot.course === course.id
+        )?.section;
+
+        // Create a new list for masterSlotList
+        updatedMasterSlotList.push(course.id);
+
+        // Only render the course if it's still in mandatoryCourses
+        return (
+          <MasterSlot
+            key={course.id}
+            sectionId={sectionId}
+            professors={professors}
+            colourIndex={colourIndex}
+            classmates={courseToClassmates[course.id]}
+            course={course}
+            fetchCourseInfo={() => dispatch(fetchCourseInfo(course.id))}
+            removeCourse={() => dispatch(addOrRemoveCourse(course.id))}
+            getShareLink={getShareLink}
+            colorData={colorData}
+            isHovered={
+              updatedMasterSlotList[hoveredCourse] === course.id && !isDragging
+            }
+            draggable={showDrag}
+            onDragStart={(course) => handleDragStart(course)}
+            onDragEnd={handleDragEnd}
+            showLink={showLink}
+            hideCloseButton={!showRemove}
+          />
+        );
+      }
+    });
+    setSlots(newMasterSlots);
+  };
 
   const hideDropdown = () => {
     setShowDropdown(false);
@@ -164,40 +264,6 @@ const SideBar = () => {
       ))
     : null;
 
-  // Contains all keys for masterSlots (Iterated over for hoveredCourse, i.e. state for index of up/down keyboard shortcuts)
-  const masterSlotList: number[] = [];
-
-  let masterSlots = mandatoryCourses
-    ? mandatoryCourses.map((course) => {
-        const colourIndex =
-          course.id in courseToColourIndex
-            ? courseToColourIndex[course.id]
-            : getNextAvailableColour(courseToColourIndex);
-        const professors = course.sections.map((section) => section.instructors);
-        const sectionId = timetable.slots.find(
-          (slot) => slot.course === course.id
-        ).section;
-
-        masterSlotList.push(course.id);
-
-        return (
-          <MasterSlot
-            key={course.id}
-            sectionId={sectionId}
-            professors={professors}
-            colourIndex={colourIndex}
-            classmates={courseToClassmates[course.id]}
-            course={course}
-            fetchCourseInfo={() => dispatch(fetchCourseInfo(course.id))}
-            removeCourse={() => dispatch(addOrRemoveCourse(course.id))}
-            getShareLink={getShareLink}
-            colorData={colorData}
-            isHovered={masterSlotList[hoveredCourse] === course.id}
-          />
-        );
-      })
-    : null;
-
   // This detects changes to the size of masterSlotList (i.e. how many courses are on the current timetable) and updates the masterSlotList length accordingly
   // Also handles edge case in which hoveredCourse points to the last index in masterSlotList, but a course is deleted by the user. When this happens, hoveredCourse is decremented.
   useEffect(() => {
@@ -245,9 +311,42 @@ const SideBar = () => {
         <span className={classNames("tip-down", { down: showDropdown })} />
       </div>
     ) : null;
-  if (masterSlots.length === 0) {
-    // @ts-ignore
-    masterSlots = (
+
+  // Function to handle course drag
+  const handleDragStart = (course: Course | DenormalizedCourse) => {
+    setDraggedCourse(course);
+    setIsDragging(true);
+  };
+
+  const handleDragEnd = () => {
+    setIsDragging(false); // Reset dragging state
+  };
+
+  // Function to handle dropping the course into the schedule
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (draggedCourse) {
+      // Add the dragged course to the schedule
+      setCoursePlan([...coursePlan, draggedCourse]);
+
+      // Remove the dragged course from the masterSlots list
+      const updatedCourses = masterSlotCourses.filter(
+        (course) => course.id !== draggedCourse.id
+      );
+      setMasterSlotCourses(updatedCourses);
+      setDraggedCourse(null); // Reset draggedCourse
+      setIsDragging(false);
+    }
+  };
+
+  // Prevent default behavior when dragging over the drop zone
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragging(true);
+  };
+
+  const emptyMasterSlot = () => {
+    return (
       <div className="empty-state">
         <img
           src={
@@ -264,7 +363,8 @@ const SideBar = () => {
         </h3>
       </div>
     );
-  }
+  };
+
   return (
     <div className="side-bar no-print">
       <div className="sb-name">
@@ -302,10 +402,69 @@ const SideBar = () => {
         </h4>
       </a>
       <h4 className="sb-tip">
-        <b>ProTip:</b> use <i className="fa fa-lock" />
-        to lock a section in place.
+        <b>ProTip:</b> use <i className="fa fa-lock" /> to lock a section in place.
       </h4>
-      <div className="sb-master-slots">{masterSlots}</div>
+      <div
+        className="sb-master-slots"
+        onDragOver={handleDragOver}
+        style={{ borderBottom: "2px solid black" }}
+      >
+        {masterSlots.length === 0 ? (
+          coursePlan.length === 0 ? (
+            emptyMasterSlot()
+          ) : (
+            <></>
+          )
+        ) : (
+          masterSlots
+        )}
+      </div>
+      <div
+        className="sb-course-scheduling"
+        style={{
+          marginTop: "10px",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <h5 style={{ width: "60%" }}>Scheduled Courses</h5>
+          <button style={{ height: "40px" }}>Create</button>
+        </div>
+
+        <div
+          onDrop={handleDrop}
+          onDragOver={handleDragOver}
+          onDragEnd={handleDragEnd}
+          style={{
+            minHeight: "200px",
+            padding: "16px",
+            backgroundColor: isDragging ? "lightblue" : "white",
+            transition: "background-color 0.3s ease",
+            borderRadius: "20px",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+          }}
+        >
+          {coursePlan.length > 0 ? (
+            <>{coursePlanMasterSlots}</>
+          ) : (
+            <p
+              style={{
+                lineHeight: "1.5",
+                textAlign: "center",
+              }}
+            >
+              Drag and drop courses to automatically make your schedule!{" "}
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 };

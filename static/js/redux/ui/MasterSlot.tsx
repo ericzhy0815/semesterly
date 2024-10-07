@@ -46,6 +46,10 @@ type MasterSlotProps = {
   getShareLink: Function;
   colorData: SlotColorData[];
   isHovered: boolean;
+  draggable?: boolean;
+  onDragStart?: (course: Course | DenormalizedCourse) => void;
+  onDragEnd?: () => void;
+  showLink?: boolean;
 };
 
 /**
@@ -182,6 +186,26 @@ const MasterSlot = (props: MasterSlotProps) => {
       onMouseLeave={onMasterSlotUnhover}
       style={{ backgroundColor: props.colorData[props.colourIndex].background }}
       onClick={props.fetchCourseInfo}
+      draggable
+      onDragStart={
+        props.draggable
+          ? (event) => {
+              event.dataTransfer.setData("text/plain", props.course.code);
+              props.onDragStart(props.course); // Call the onDragStart prop
+            }
+          : () => {
+              undefined;
+            }
+      }
+      onDragEnd={
+        props.draggable
+          ? () => {
+              props.onDragEnd(); // Call the onDragEnd prop
+            }
+          : () => {
+              undefined;
+            }
+      }
     >
       <div
         className="slot-bar"
@@ -197,11 +221,17 @@ const MasterSlot = (props: MasterSlotProps) => {
         <h3>{creditsDisplay}</h3>
       </div>
       <div className="master-slot-actions">
-        <i
-          className="fa fa-share-alt"
-          onClick={(event) => stopPropagation(showShareLink, event)}
-        />
-        {shareLink}
+        {props.showLink ? (
+          <>
+            {" "}
+            <i
+              className="fa fa-share-alt"
+              onClick={(event) => stopPropagation(showShareLink, event)}
+            />
+            {shareLink}
+          </>
+        ) : null}
+
         {!props.hideCloseButton ? (
           <i
             className="fa fa-times"
