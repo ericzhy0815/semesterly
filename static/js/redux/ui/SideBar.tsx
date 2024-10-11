@@ -51,6 +51,8 @@ import CreateNewTimetableButton from "./CreateNewTimetableButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import { sectionSchema } from "../schema";
+import { course } from "../__fixtures__/state";
+import { findTopSchedules } from "./optimize_schedule";
 
 /**
  * This component displays the timetable name, allows you to switch between timetables,
@@ -365,6 +367,13 @@ const SideBar = () => {
     );
   };
 
+  const handleCreateClick = () => {
+    // console.log(coursePlan, masterSlotCourses);
+    if (coursePlan.length > 0) {
+      console.log(findTopSchedules(coursePlan));
+    }
+  };
+
   return (
     <div className="side-bar no-print">
       <div className="sb-name">
@@ -404,11 +413,7 @@ const SideBar = () => {
       <h4 className="sb-tip">
         <b>ProTip:</b> use <i className="fa fa-lock" /> to lock a section in place.
       </h4>
-      <div
-        className="sb-master-slots"
-        onDragOver={handleDragOver}
-        style={{ borderBottom: "2px solid black" }}
-      >
+      <div className="sb-master-slots" style={{ borderBottom: "2px solid black" }}>
         {masterSlots.length === 0 ? (
           coursePlan.length === 0 ? (
             emptyMasterSlot()
@@ -433,13 +438,15 @@ const SideBar = () => {
           }}
         >
           <h5 style={{ width: "60%" }}>Scheduled Courses</h5>
-          <button style={{ height: "40px" }}>Create</button>
+          <button style={{ height: "40px" }} onClick={handleCreateClick}>
+            Create
+          </button>
         </div>
 
         <div
           onDrop={handleDrop}
-          onDragOver={handleDragOver}
           onDragEnd={handleDragEnd}
+          onDragOver={handleDragOver}
           style={{
             minHeight: "200px",
             padding: "16px",
@@ -458,6 +465,7 @@ const SideBar = () => {
               style={{
                 lineHeight: "1.5",
                 textAlign: "center",
+                userSelect: "none",
               }}
             >
               Drag and drop courses to automatically make your schedule!{" "}
