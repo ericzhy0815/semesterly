@@ -1,14 +1,7 @@
 // Helper functions for scheduling courses
 
 // Define interfaces for the course and section structure
-import {
-  Course,
-  DenormalizedCourse,
-  Offering,
-  Section,
-  Slot,
-  Timetable,
-} from "../constants/commonTypes";
+import { DenormalizedCourse, Section } from "../constants/commonTypes";
 
 /**
  * Convert time from "HH:MM" format into minutes.
@@ -40,39 +33,6 @@ function isFeasible(schedule: Section[], newSection: Section): boolean {
     }
   }
   return true; // No overlaps
-}
-
-/**
- * Get all feasible schedules using a greedy approach.
- * @param {DenormalizedCourse[]} courses - Array of courses with sections.
- * @returns {Section[][]} - Array of feasible schedules.
- */
-export function getFeasibleSchedules(courses: DenormalizedCourse[]): Section[][] {
-  const schedules: Section[][] = []; // Array to hold all feasible schedules
-
-  function backtrack(currentSchedule: Section[], courseIndex: number) {
-    if (courseIndex === courses.length) {
-      // If all courses have been processed, add the current schedule to schedules
-      schedules.push(currentSchedule);
-      return;
-    }
-
-    const currentCourse = courses[courseIndex];
-
-    // Iterate over each section of the current course
-    for (const section of currentCourse.sections) {
-      // Check feasibility of adding the current section
-      if (isFeasible(currentSchedule, section)) {
-        // If feasible, add the section and move to the next course
-        backtrack([...currentSchedule, section], courseIndex + 1);
-      }
-    }
-  }
-
-  // Start backtracking with an empty schedule and the first course
-  backtrack([], 0);
-
-  return schedules; // Return all feasible schedules
 }
 
 /**
@@ -108,17 +68,40 @@ export function calculateTotalGaps(schedule: Section[]): number {
 }
 
 /**
- * Find the top N schedules with the least gaps.
- * @param {Course[]} courses - Array of courses with sections.
- * @param {number} topN - Number of top schedules to return.
- * @returns {Array<{ schedule: Section[]; totalGaps: number }>} - Array of top N schedules sorted by gaps.
+ * Get all feasible schedules, ensuring locked sections are included.
+ * @param {DenormalizedCourse[]} courses - Array of courses with sections.
+ * @param {Section[]} lockedSections - Array of locked sections.
+ * @returns {Section[][]} - Array of feasible schedules.
  */
+export function getFeasibleSchedules(
+  courses: DenormalizedCourse[],
+  lockedSections: Section[]
+): Section[][] {
+  const schedules: Section[][] = [];
+  // backtracking to not explore branches of tree that is alreadt infeasible
+  function backtrack(currentSchedule: Section[], courseIndex: number) {
+    if (courseIndex === courses.length) {
+      schedules.push(currentSchedule);
+      return;
+    }
+    const currentCourse = courses[courseIndex];
+    for (const section of currentCourse.sections) {
+      if (isFeasible([...currentSchedule, ...lockedSections], section))
+        backtrack([...currentSchedule, section], courseIndex + 1);
+    }
+  }
+  backtrack(lockedSections, 0);
+  return schedules;
+}
+
 export function findTopSchedules(
   courses: DenormalizedCourse[],
-  topN = 1
+  lockedSections: Section[],
+  topN = 1 // number of schedules we want to return
 ): Array<{ schedule: Section[]; totalGaps: number }> {
-  const combinations = getFeasibleSchedules(courses);
-  if (combinations.length === 0) return []; // no feasible schedule
+  const combinations = getFeasibleSchedules(courses, lockedSections);
+  if (combinations.length === 0 || topN < 1) return [];
+  // Rank schedules by total gaps
   const rankedSchedules = combinations
     .map((schedule) => ({ schedule, totalGaps: calculateTotalGaps(schedule) }))
     .sort((a, b) => a.totalGaps - b.totalGaps);

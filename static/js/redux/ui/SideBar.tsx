@@ -13,7 +13,6 @@ GNU General Public License for more details.
 */
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { batch } from "react-redux";
 import classNames from "classnames";
 // @ts-ignore no available type
 import ClickOutHandler from "react-onclickout";
@@ -40,9 +39,7 @@ import {
 import {
   Course,
   DenormalizedCourse,
-  Offering,
   Section,
-  Slot,
   Timetable,
 } from "../constants/commonTypes";
 import { startComparingTimetables } from "../state/slices/compareTimetableSlice";
@@ -52,10 +49,8 @@ import { peerModalActions } from "../state/slices/peerModalSlice";
 import CreateNewTimetableButton from "./CreateNewTimetableButton";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
-import { sectionSchema } from "../schema";
-import { course } from "../__fixtures__/state";
 import { findTopSchedules } from "./optimize_schedule";
-import { denormalizedCourse } from "../constants/semesterlyPropTypes";
+import { section } from "../__fixtures__/state";
 
 /**
  * This component displays the timetable name, allows you to switch between timetables,
@@ -146,6 +141,28 @@ const SideBar = () => {
       "coursePlan"
     );
   }, [mandatoryCourses, coursePlan]);
+
+  const currentSections = useMemo(() => {
+    return timetable.slots
+      .map((slot) => {
+        const course = mandatoryCourses.find((course) => course.id === slot.course);
+        if (course) {
+          const section = course.sections.find(
+            (section) => section.id === slot.section
+          );
+          return section
+            ? {
+                ...section,
+                is_locked: slot.is_locked,
+                offerings: slot.offerings,
+                course_id: course.id,
+              }
+            : null;
+        }
+        return null;
+      })
+      .filter((section) => section !== null);
+  }, [timetable.slots, mandatoryCourses]);
 
   const createMasterSlots = (
     courses: DenormalizedCourse[],
@@ -404,19 +421,28 @@ const SideBar = () => {
     );
   };
 
-  const handleCreateClick = () => {
-    // console.log(coursePlan, masterSlotCourses);
-    if (coursePlan.length === 0) return;
-    const updatedCoursePlan = coursePlan.map((course: DenormalizedCourse) => ({
+  const addCourseIDToCourseList = (
+    courses: DenormalizedCourse[]
+  ): DenormalizedCourse[] => {
+    return courses.map((course: DenormalizedCourse) => ({
       ...course,
       sections: course.sections.map((section: Section) => ({
         ...section,
-        course_id: course.id, // Append course ID to each section
+        course_id: course.id,
       })),
     }));
-    const schedules = findTopSchedules(updatedCoursePlan);
+  };
 
-    //console.log(updatedCoursePlan, schedules);
+  const handleCreateClick = () => {
+    if (coursePlan.length === 0) return;
+    const updatedCoursePlan = addCourseIDToCourseList(coursePlan);
+
+    const lockedSections = currentSections.filter((section) =>
+      masterSlotCourses.some((course) => course.id === section.course_id)
+    );
+    const schedules = findTopSchedules(updatedCoursePlan, lockedSections);
+
+    console.log(schedules);
     if (schedules.length === 0) {
       console.error("no feasible schedule found");
       return;
