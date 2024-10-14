@@ -3,21 +3,11 @@
 // Define interfaces for the course and section structure
 import { DenormalizedCourse, Section } from "../constants/commonTypes";
 
-/**
- * Convert time from "HH:MM" format into minutes.
- * @param {string} time - Time in "HH:MM" format.
- * @returns {number} - Time in minutes.
- */
 export function timeToMinutes(time: string): number {
   const [hours, minutes] = time.split(":").map(Number);
   return hours * 60 + minutes;
 }
 
-/**
- * Check if a schedule is feasible (i.e., no time overlaps).
- * @param {Section[]} schedule - The sections in the schedule to check.
- * @returns {boolean} - True if feasible, false otherwise.
- */
 function isFeasible(schedule: Section[], newSection: Section): boolean {
   for (const section of schedule) {
     for (const newTime of newSection.offering_set) {
@@ -35,11 +25,6 @@ function isFeasible(schedule: Section[], newSection: Section): boolean {
   return true; // No overlaps
 }
 
-/**
- * Calculate the total gaps between time slots in a schedule.
- * @param {Section[]} schedule - Array of selected sections for the schedule.
- * @returns {number} - Total gaps in minutes.
- */
 export function calculateTotalGaps(schedule: Section[]): number {
   const daySlots: Record<string, { start: number; end: number }[]> = {};
 
@@ -67,12 +52,6 @@ export function calculateTotalGaps(schedule: Section[]): number {
   return totalGaps;
 }
 
-/**
- * Get all feasible schedules, ensuring locked sections are included.
- * @param {DenormalizedCourse[]} courses - Array of courses with sections.
- * @param {Section[]} lockedSections - Array of locked sections.
- * @returns {Section[][]} - Array of feasible schedules.
- */
 export function getFeasibleSchedules(
   courses: DenormalizedCourse[],
   lockedSections: Section[]
