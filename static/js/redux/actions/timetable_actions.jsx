@@ -65,6 +65,8 @@ export const fetchTimetables =
   (dispatch, getState) => {
     const state = getState();
 
+    console.log(requestBody);
+
     // mark that we are now asynchronously requesting timetables
     dispatch(timetablesActions.setIsFetching(true));
 
@@ -89,6 +91,7 @@ export const fetchTimetables =
         return null;
       })
       .then((json) => {
+        //console.log(json);
         if (removing || json.timetables.length > 0) {
           // receive new info into state
           dispatch(receiveCourses(json.courses));
@@ -374,6 +377,43 @@ export const addOrRemoveCourse =
     // otherwise, they're adding it
     dispatch(fetchTimetables(reqBody, removing));
   };
+
+export const updateCourses = (courses) => (dispatch, getState) => {
+  const state = getState();
+
+  // Check if timetables are currently being fetched
+  if (state.timetables.isFetching) {
+    return;
+  }
+
+  // Initialize request body
+  const reqBody = getBaseReqBody(state);
+
+  // Prepare for removing courses
+  const updatedCourseSections = { ...state.courseSections.objects };
+
+  // Remove all existing courses
+  const courseIds = Object.keys(state.courseSections.objects);
+  courseIds.forEach((courseId) => {
+    if (updatedCourseSections[courseId]) delete updatedCourseSections[courseId];
+  });
+
+  // Prepare updated courses for adding
+  const updatedCourses = courses.map(({ course_id, meeting_section }) => ({
+    course_id: course_id,
+    section_codes: [meeting_section], // Ensure this structure matches backend expectations
+  }));
+
+  // Update the request body
+  reqBody.courseSections = updatedCourseSections; // Updated sections after removal
+  reqBody.updated_courses = updatedCourses; // New courses to be added
+  Object.assign(reqBody, {
+    customEvents: state.customEvents,
+  });
+
+  // Dispatch the action to fetch updated timetables
+  dispatch(fetchTimetables(reqBody, true)); // true indicates removal
+};
 
 export const addLastAddedCourse = () => (dispatch, getState) => {
   const state = getState();

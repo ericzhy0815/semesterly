@@ -118,6 +118,7 @@ export function findTopSchedules(
   topN = 1
 ): Array<{ schedule: Section[]; totalGaps: number }> {
   const combinations = getFeasibleSchedules(courses);
+  if (combinations.length === 0) return []; // no feasible schedule
   const rankedSchedules = combinations
     .map((schedule) => ({ schedule, totalGaps: calculateTotalGaps(schedule) }))
     .sort((a, b) => a.totalGaps - b.totalGaps);

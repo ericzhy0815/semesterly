@@ -12,7 +12,8 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 */
 
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { batch } from "react-redux";
 import classNames from "classnames";
 // @ts-ignore no available type
 import ClickOutHandler from "react-onclickout";
@@ -34,6 +35,7 @@ import {
   duplicateTimetable,
   fetchCourseInfo,
   loadTimetable,
+  updateCourses,
 } from "../actions";
 import {
   Course,
@@ -53,6 +55,7 @@ import Typography from "@mui/material/Typography";
 import { sectionSchema } from "../schema";
 import { course } from "../__fixtures__/state";
 import { findTopSchedules } from "./optimize_schedule";
+import { denormalizedCourse } from "../constants/semesterlyPropTypes";
 
 /**
  * This component displays the timetable name, allows you to switch between timetables,
@@ -94,7 +97,8 @@ const SideBar = () => {
 
   // coursePlan stores all the courses that the user drags into the course optimization section
   const [coursePlan, setCoursePlan] = useState([]);
-  const [isDragging, setIsDragging] = useState(false);
+  const [isCoursePlanDragging, setIsCoursePlanDragging] = useState(false);
+  const [isMasterCourseDragging, setIsMasterCourseDragging] = useState(false);
   const [draggedCourse, setDraggedCourse] = useState(null);
   // masterSlots stores the MasterSlot components to be rendered for the original course list
   const [masterSlots, setMasterSlots] = useState([]);
@@ -122,11 +126,25 @@ const SideBar = () => {
   }, [mandatoryCourses]);
 
   useEffect(() => {
-    createMasterSlots(masterSlotCourses, setMasterSlots, true, true, true);
+    createMasterSlots(
+      masterSlotCourses,
+      setMasterSlots,
+      true,
+      true,
+      true,
+      "masterSlotCourses"
+    );
   }, [mandatoryCourses, masterSlotCourses]);
 
   useEffect(() => {
-    createMasterSlots(coursePlan, setCoursePlanMasterSlots, false, false, false);
+    createMasterSlots(
+      coursePlan,
+      setCoursePlanMasterSlots,
+      true,
+      false,
+      false,
+      "coursePlan"
+    );
   }, [mandatoryCourses, coursePlan]);
 
   const createMasterSlots = (
@@ -134,7 +152,8 @@ const SideBar = () => {
     setSlots: React.Dispatch<React.SetStateAction<any>>,
     showDrag: boolean,
     showLink: boolean,
-    showRemove: boolean
+    showRemove: boolean,
+    target: string
   ) => {
     const updatedMasterSlotList: number[] = [];
     const newMasterSlots = courses.map((course) => {
@@ -168,11 +187,13 @@ const SideBar = () => {
             getShareLink={getShareLink}
             colorData={colorData}
             isHovered={
-              updatedMasterSlotList[hoveredCourse] === course.id && !isDragging
+              updatedMasterSlotList[hoveredCourse] === course.id &&
+              !isMasterCourseDragging &&
+              !isCoursePlanDragging
             }
             draggable={showDrag}
-            onDragStart={(course) => handleDragStart(course)}
-            onDragEnd={handleDragEnd}
+            onDragStart={(course) => handleDragStart(course, target)}
+            onDragEnd={() => handleDragEnd(target)}
             showLink={showLink}
             hideCloseButton={!showRemove}
           />
@@ -315,36 +336,52 @@ const SideBar = () => {
     ) : null;
 
   // Function to handle course drag
-  const handleDragStart = (course: Course | DenormalizedCourse) => {
+  const handleDragStart = (course: Course | DenormalizedCourse, target: string) => {
     setDraggedCourse(course);
-    setIsDragging(true);
+    if (target === "coursePlan") setIsCoursePlanDragging(true);
+    else if (target === "masterSlotCourses") setIsMasterCourseDragging(true);
   };
 
-  const handleDragEnd = () => {
-    setIsDragging(false); // Reset dragging state
+  const handleDragEnd = (target: string) => {
+    if (target === "coursePlan") setIsCoursePlanDragging(false);
+    else if (target === "masterSlotCourses") setIsMasterCourseDragging(false);
   };
 
   // Function to handle dropping the course into the schedule
-  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>, target: string) => {
     event.preventDefault();
-    if (draggedCourse) {
-      // Add the dragged course to the schedule
-      setCoursePlan([...coursePlan, draggedCourse]);
 
-      // Remove the dragged course from the masterSlots list
+    // no course being dragged
+    if (!draggedCourse) return;
+
+    // Check the target drop area
+    if (target === "coursePlan" && isMasterCourseDragging) {
+      // Add the dragged course to the course plan
+      setCoursePlan((prevPlan) => [...prevPlan, draggedCourse]);
+      // Remove the dragged course from the other list
       const updatedCourses = masterSlotCourses.filter(
         (course) => course.id !== draggedCourse.id
       );
       setMasterSlotCourses(updatedCourses);
-      setDraggedCourse(null); // Reset draggedCourse
-      setIsDragging(false);
+      setIsMasterCourseDragging(false);
+    } else if (target === "masterSlotCourses" && isCoursePlanDragging) {
+      // Add the dragged course to masterSlotCourses
+      setMasterSlotCourses((prevCourses) => [...prevCourses, draggedCourse]);
+      // Remove the dragged course from the other list
+      const updatedCourses = coursePlan.filter(
+        (course) => course.id !== draggedCourse.id
+      );
+      setCoursePlan(updatedCourses);
+      setIsCoursePlanDragging(false);
     }
+
+    // Reset dragged course
+    setDraggedCourse(null);
   };
 
   // Prevent default behavior when dragging over the drop zone
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    setIsDragging(true);
   };
 
   const emptyMasterSlot = () => {
@@ -369,13 +406,39 @@ const SideBar = () => {
 
   const handleCreateClick = () => {
     // console.log(coursePlan, masterSlotCourses);
-    if (coursePlan.length > 0) {
-      console.log(findTopSchedules(coursePlan));
+    if (coursePlan.length === 0) return;
+    const updatedCoursePlan = coursePlan.map((course: DenormalizedCourse) => ({
+      ...course,
+      sections: course.sections.map((section: Section) => ({
+        ...section,
+        course_id: course.id, // Append course ID to each section
+      })),
+    }));
+    const schedules = findTopSchedules(updatedCoursePlan);
+
+    //console.log(updatedCoursePlan, schedules);
+    if (schedules.length === 0) {
+      console.error("no feasible schedule found");
+      return;
     }
+
+    dispatch(updateCourses(schedules[0].schedule));
+    setCoursePlan([]);
+  };
+
+  const handleAddAllClick = () => {
+    setCoursePlan(mandatoryCourses);
+    setMasterSlotCourses([]);
   };
 
   return (
-    <div className="side-bar no-print">
+    <div
+      className="side-bar no-print"
+      style={{
+        overflowY: "auto",
+        overflowX: "hidden",
+      }}
+    >
       <div className="sb-name">
         <TimetableNameInput />
         <ClickOutHandler onClickOut={hideDropdown}>
@@ -413,12 +476,43 @@ const SideBar = () => {
       <h4 className="sb-tip">
         <b>ProTip:</b> use <i className="fa fa-lock" /> to lock a section in place.
       </h4>
-      <div className="sb-master-slots" style={{ borderBottom: "2px solid black" }}>
+      <div
+        className="sb-master-slots"
+        onDrop={(event) => handleDrop(event, "masterSlotCourses")}
+        onDragEnd={() => handleDragEnd("masterSlotCourses")}
+        onDragOver={handleDragOver}
+        style={{
+          backgroundColor: isCoursePlanDragging ? "lightblue" : "white",
+          transition: "background-color 0.3s ease",
+          borderBottom: "2px solid black",
+          minHeight: "200px",
+          padding: "16px",
+          borderTopLeftRadius: "20px",
+          borderTopRightRadius: "20px",
+        }}
+      >
         {masterSlots.length === 0 ? (
           coursePlan.length === 0 ? (
             emptyMasterSlot()
           ) : (
-            <></>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                height: "200px",
+              }}
+            >
+              <p
+                style={{
+                  lineHeight: "1.5",
+                  textAlign: "center",
+                  userSelect: "none",
+                }}
+              >
+                Drag courses back here to lock in your section choice!
+              </p>
+            </div>
           )
         ) : (
           masterSlots
@@ -438,19 +532,28 @@ const SideBar = () => {
           }}
         >
           <h5 style={{ width: "60%" }}>Scheduled Courses</h5>
-          <button style={{ height: "40px" }} onClick={handleCreateClick}>
-            Create
-          </button>
+          <div
+            style={{
+              height: "40px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "5px",
+              justifyContent: "center",
+            }}
+          >
+            <button onClick={handleCreateClick}>Create</button>
+            <button onClick={handleAddAllClick}>Add All</button>
+          </div>
         </div>
 
         <div
-          onDrop={handleDrop}
-          onDragEnd={handleDragEnd}
+          onDrop={(event) => handleDrop(event, "coursePlan")}
+          onDragEnd={() => handleDragEnd("coursePlan")}
           onDragOver={handleDragOver}
           style={{
             minHeight: "200px",
             padding: "16px",
-            backgroundColor: isDragging ? "lightblue" : "white",
+            backgroundColor: isMasterCourseDragging ? "lightblue" : "white",
             transition: "background-color 0.3s ease",
             borderRadius: "20px",
             display: "flex",
@@ -468,7 +571,7 @@ const SideBar = () => {
                 userSelect: "none",
               }}
             >
-              Drag and drop courses to automatically make your schedule!{" "}
+              Drag and drop courses to automatically make your schedule!
             </p>
           )}
         </div>
