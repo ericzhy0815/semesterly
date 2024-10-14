@@ -64,9 +64,6 @@ export const fetchTimetables =
   (requestBody, removing, newActive = 0) =>
   (dispatch, getState) => {
     const state = getState();
-
-    console.log(requestBody);
-
     // mark that we are now asynchronously requesting timetables
     dispatch(timetablesActions.setIsFetching(true));
 
@@ -91,7 +88,6 @@ export const fetchTimetables =
         return null;
       })
       .then((json) => {
-        //console.log(json);
         if (removing || json.timetables.length > 0) {
           // receive new info into state
           dispatch(receiveCourses(json.courses));
